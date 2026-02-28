@@ -1,0 +1,180 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<!DOCTYPE window>
+<window
+	xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+	xmlns:html="http://www.w3.org/1999/xhtml"
+	title="Find Duplicate Items"
+	width="600"
+	height="500">
+
+<vbox flex="1" style="padding: 10px;">
+	<!-- Phase 1: Scanning -->
+	<vbox id="scanning-phase">
+		<label id="scan-status" value="Scanning items…"/>
+		<html:progress id="scan-progress" style="width: 100%; margin: 8px 0;" value="0" max="100"/>
+		<hbox pack="end">
+			<button id="cancel-scan-btn" label="Cancel"/>
+		</hbox>
+	</vbox>
+
+	<!-- Phase 2: Results -->
+	<vbox id="results-phase" hidden="true" flex="1">
+		<label id="results-summary"/>
+		<vbox id="results-list" flex="1" style="overflow-y: auto; border: 1px solid #ccc; padding: 4px; margin: 8px 0;"/>
+		<hbox pack="end">
+			<button id="cancel-results-btn" label="Cancel" style="margin-right: 8px;"/>
+			<button id="tag-btn" label="Tag Duplicates"/>
+		</hbox>
+	</vbox>
+
+	<!-- Phase 3: No results -->
+	<vbox id="noresults-phase" hidden="true">
+		<label value="No duplicate items found."/>
+		<hbox pack="end">
+			<button id="close-btn" label="Close"/>
+		</hbox>
+	</vbox>
+
+	<!-- Phase 4: Done tagging -->
+	<vbox id="done-phase" hidden="true">
+		<label id="done-label"/>
+		<hbox pack="end">
+			<button id="done-close-btn" label="Close"/>
+		</hbox>
+	</vbox>
+</vbox>
+
+<script type="application/javascript"><![CDATA[
+(async function() {
+	let args = window.arguments[0];
+	let FD = args.FindDuplicates;
+	let Zotero = args.Zotero;
+
+	let scanningPhase = document.getElementById('scanning-phase');
+	let resultsPhase = document.getElementById('results-phase');
+	let noresultsPhase = document.getElementById('noresults-phase');
+	let donePhase = document.getElementById('done-phase');
+
+	let scanStatus = document.getElementById('scan-status');
+	let scanProgress = document.getElementById('scan-progress');
+	let resultsList = document.getElementById('results-list');
+	let resultsSummary = document.getElementById('results-summary');
+	let doneLabel = document.getElementById('done-label');
+
+	let cancelToken = { cancelled: false };
+
+	document.getElementById('cancel-scan-btn').addEventListener('command', () => {
+		cancelToken.cancelled = true;
+		window.close();
+	});
+
+	document.getElementById('cancel-results-btn').addEventListener('command', () => {
+		window.close();
+	});
+
+	document.getElementById('close-btn').addEventListener('command', () => {
+		window.close();
+	});
+
+	document.getElementById('done-close-btn').addEventListener('command', () => {
+		window.close();
+	});
+
+	function showPhase(phase) {
+		scanningPhase.hidden = true;
+		resultsPhase.hidden = true;
+		noresultsPhase.hidden = true;
+		donePhase.hidden = true;
+		phase.hidden = false;
+	}
+
+	// Phase 1: Scan
+	let groups;
+	try {
+		groups = await FD.scan(
+			(current, total, title) => {
+				let pct = total > 0 ? Math.round((current / total) * 100) : 0;
+				scanProgress.value = pct;
+				scanStatus.value = `Scanning ${current}/${total}: ${title || ''}`;
+			},
+			cancelToken
+		);
+	} catch (e) {
+		Zotero.debug("Find Duplicates scan error: " + e);
+		window.close();
+		return;
+	}
+
+	if (cancelToken.cancelled) return;
+
+	if (!groups || groups.length === 0) {
+		showPhase(noresultsPhase);
+		return;
+	}
+
+	// Phase 2: Show results
+	showPhase(resultsPhase);
+	let totalItems = groups.reduce((n, g) => n + g.items.length, 0);
+	resultsSummary.value = `Found ${groups.length} group(s) with ${totalItems} total items.`;
+
+	let checkboxes = [];
+	for (let i = 0; i < groups.length; i++) {
+		let group = groups[i];
+		let groupBox = document.createXULElement('vbox');
+		groupBox.style.cssText = 'margin-bottom: 8px; padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
+
+		let headerRow = document.createXULElement('hbox');
+		headerRow.setAttribute('align', 'center');
+
+		let cb = document.createXULElement('checkbox');
+		cb.setAttribute('checked', 'true');
+		cb.groupIndex = i;
+		checkboxes.push(cb);
+		headerRow.appendChild(cb);
+
+		let typeLabel = document.createXULElement('label');
+		typeLabel.value = group.type === 'pdf' ? '[PDF match]' : '[Title match]';
+		typeLabel.style.cssText = 'font-weight: bold; margin-left: 6px;';
+		headerRow.appendChild(typeLabel);
+
+		groupBox.appendChild(headerRow);
+
+		for (let item of group.items) {
+			let row = document.createXULElement('label');
+			let creators = item.getCreators();
+			let author = creators.length > 0 ? creators[0].lastName : 'Unknown';
+			let year = item.getField('date') ? item.getField('date').substring(0, 4) : '????';
+			let title = item.getField('title') || '(no title)';
+			row.value = `  ${author} (${year}) — ${title}`;
+			row.style.cssText = 'margin-left: 24px; margin-top: 2px;';
+			row.setAttribute('crop', 'end');
+			groupBox.appendChild(row);
+		}
+
+		resultsList.appendChild(groupBox);
+	}
+
+	document.getElementById('tag-btn').addEventListener('command', async () => {
+		let selectedGroups = groups.filter((g, i) => {
+			return checkboxes[i].checked;
+		});
+		if (selectedGroups.length === 0) {
+			window.close();
+			return;
+		}
+		try {
+			await FD.tagDuplicates(selectedGroups);
+			showPhase(donePhase);
+			let taggedCount = selectedGroups.reduce((n, g) => n + g.items.length, 0);
+			doneLabel.value = `Tagged ${taggedCount} items as "duplicate".`;
+		} catch (e) {
+			Zotero.debug("Find Duplicates tag error: " + e);
+			showPhase(donePhase);
+			doneLabel.value = "Error tagging items: " + e.message;
+		}
+	});
+})();
+]]></script>
+
+</window>
