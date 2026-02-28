@@ -6,7 +6,7 @@
 	"applications": {
 		"zotero": {
 			"id": "find-duplicates@example.com",
-			"update_url": "https://example.com/updates.json",
+			"update_url": "https://raw.githubusercontent.com/ajdavis/zotero-duplicates-plugin/main/update.json",
 			"strict_min_version": "6.999",
 			"strict_max_version": "8.99.*"
 		}
