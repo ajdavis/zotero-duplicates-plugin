@@ -20,6 +20,13 @@ Produces `zotero-duplicates.xpi`.
 
 Tools → Find Duplicate Items…
 
+## Release
+
+1. Bump `version` in `manifest.json` and `update.json`
+2. `bash build.sh`
+3. Commit and push
+4. `gh release create vX.Y zotero-duplicates.xpi`
+
 ## License
 
 AGPL-3.0. See [LICENSE](LICENSE).
