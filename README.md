@@ -18,7 +18,7 @@ Produces `zotero-duplicates.xpi`.
 
 ## Usage
 
-Tools → Find Duplicate Items…
+Tools → Find Duplicate Items… → review groups → Tag Duplicates. The main window automatically filters to show tagged items.
 
 ## Release
 

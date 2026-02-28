@@ -55,10 +55,10 @@ FindDuplicates = {
 			'find-duplicates-dialog',
 			'chrome,centerscreen,resizable,width=600,height=500'
 		);
-		win.addEventListener('load', () => this._buildDialog(win));
+		win.addEventListener('load', () => this._buildDialog(win, parentWindow));
 	},
 
-	_buildDialog(win) {
+	_buildDialog(win, parentWindow) {
 		let doc = win.document;
 		doc.title = 'Find Duplicate Items';
 
@@ -176,9 +176,15 @@ FindDuplicates = {
 				let selected = groups.filter((g, i) => checkboxes[i].checked);
 				if (selected.length === 0) { win.close(); return; }
 				await this.tagDuplicates(selected);
-				showPhase(donePhase);
 				let count = selected.reduce((n, g) => n + g.items.length, 0);
 				doneLabel.textContent = `Tagged ${count} items as "duplicate".`;
+				showPhase(donePhase);
+				let zp = parentWindow.ZoteroPane;
+				if (zp && zp.tagSelector) {
+					zp.tagSelector.selectedTags.clear();
+					zp.tagSelector.selectedTags.add('duplicate');
+					await zp.updateTagFilter();
+				}
 			};
 		});
 	},
