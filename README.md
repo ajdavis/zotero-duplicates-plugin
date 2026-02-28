@@ -12,7 +12,7 @@ Produces `zotero-duplicates.xpi`.
 
 ## Install
 
-1. In Zotero: Tools → Add-ons → ⚙ → Install Add-on From File
+1. In Zotero: Tools → Plugins → ⚙ → Install Plugin From File
 2. Select `zotero-duplicates.xpi`
 3. Restart Zotero
 
