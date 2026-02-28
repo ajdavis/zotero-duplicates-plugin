@@ -3,7 +3,7 @@
 		"find-duplicates@example.com": {
 			"updates": [
 				{
-					"version": "1.0",
+					"version": "1.1",
 					"update_link": "https://github.com/ajdavis/zotero-duplicates-plugin/releases/latest/download/zotero-duplicates.xpi",
 					"applications": {
 						"zotero": {
