@@ -200,6 +200,18 @@ FindDuplicates = {
 		return title.toLowerCase().replace(/[^a-z0-9]/g, '');
 	},
 
+	async firstPDF(item) {
+		for (let attID of item.getAttachments()) {
+			let att = Zotero.Items.get(attID);
+			if (att.attachmentContentType !== 'application/pdf') continue;
+			let path = await att.getFilePathAsync();
+			if (!path) continue;
+			let { size } = await IOUtils.stat(path);
+			return { item, att, size };
+		}
+		return null;
+	},
+
 	async scan(progressCallback, cancelToken) {
 		let items = await Zotero.Items.getAll(Zotero.Libraries.userLibraryID);
 		let parentItems = items.filter(
@@ -207,7 +219,7 @@ FindDuplicates = {
 		);
 
 		let titleGroups = {};
-		let hashGroups = {};
+		let sizeGroups = {};
 		let total = parentItems.length;
 		let yieldCounter = 0;
 
@@ -223,20 +235,30 @@ FindDuplicates = {
 				titleGroups[norm].push(item);
 			}
 
-			let attachmentIDs = item.getAttachments();
-			for (let attID of attachmentIDs) {
-				let att = Zotero.Items.get(attID);
-				let hash = att.attachmentContentType === 'application/pdf'
-					&& att.attachmentSyncedHash;
-				if (hash) {
-					if (!hashGroups[hash]) hashGroups[hash] = [];
-					hashGroups[hash].push(item);
-					break;
-				}
+			let candidate = await this.firstPDF(item);
+			if (candidate) {
+				let group = sizeGroups[candidate.size] ||= [];
+				group.push(candidate);
 			}
 
 			if (++yieldCounter % 50 === 0) {
 				await new Promise(r => setTimeout(r, 0));
+			}
+		}
+
+		// Files of differing length can't be identical, so only hash within a size.
+		let hashGroups = {};
+		let candidates = Object.values(sizeGroups).filter(c => c.length > 1).flat();
+		for (let i = 0; i < candidates.length; i++) {
+			if (cancelToken.cancelled) return [];
+
+			let { item, att } = candidates[i];
+			progressCallback(i, candidates.length, 'Hashing ' + item.getField('title'));
+
+			let hash = await att.attachmentHash;
+			if (hash) {
+				if (!hashGroups[hash]) hashGroups[hash] = [];
+				hashGroups[hash].push(item);
 			}
 		}
 
