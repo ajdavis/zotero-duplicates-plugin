@@ -154,18 +154,14 @@ FindDuplicates = {
 				cb.type = 'checkbox';
 				cb.checked = true;
 				checkboxes.push(cb);
-				let typeText = group.type === 'pdf' ? ' [PDF match]' : ' [Title match]';
+				let typeText = group.type === 'file' ? ' [File match]' : ' [Title match]';
 				header.append(cb, typeText);
 				groupDiv.appendChild(header);
 
 				for (let item of group.items) {
-					let creators = item.getCreators();
-					let author = creators.length > 0 ? creators[0].lastName : 'Unknown';
-					let year = item.getField('date') ? item.getField('date').substring(0, 4) : '????';
-					let title = item.getField('title') || '(no title)';
 					let row = this._el(doc, 'div', {
 						className: 'group-item',
-						textContent: `${author} (${year}) \u2014 ${title}`
+						textContent: this.describe(item)
 					});
 					groupDiv.appendChild(row);
 				}
@@ -181,6 +177,8 @@ FindDuplicates = {
 				showPhase(donePhase);
 				let zp = parentWindow.ZoteroPane;
 				if (zp && zp.tagSelector) {
+					// The tag filter applies within the selected collection.
+					await zp.collectionsView.selectLibrary(Zotero.Libraries.userLibraryID);
 					zp.tagSelector.selectedTags.clear();
 					zp.tagSelector.selectedTags.add('duplicate');
 					await zp.updateTagFilter();
@@ -195,50 +193,64 @@ FindDuplicates = {
 		return el;
 	},
 
+	describe(item) {
+		if (item.isAttachment()) {
+			let name = item.attachmentFilename || item.getDisplayTitle();
+			return `${name} \u2014 no parent item`;
+		}
+		let creators = item.getCreators();
+		let author = creators.length > 0 ? creators[0].lastName : 'Unknown';
+		let year = item.getField('date') ? item.getField('date').substring(0, 4) : '????';
+		return `${author} (${year}) \u2014 ${item.getField('title') || '(no title)'}`;
+	},
+
 	normalizeTitle(title) {
 		if (!title) return '';
 		return title.toLowerCase().replace(/[^a-z0-9]/g, '');
 	},
 
-	async firstPDF(item) {
-		for (let attID of item.getAttachments()) {
-			let att = Zotero.Items.get(attID);
-			if (att.attachmentContentType !== 'application/pdf') continue;
-			let path = await att.getFilePathAsync();
-			if (!path) continue;
-			let { size } = await IOUtils.stat(path);
-			return { item, att, size };
-		}
-		return null;
+	// The item a user would delete: the attachment's parent, or the attachment
+	// itself when it has none.
+	topLevelItem(att) {
+		return att.parentItemID ? Zotero.Items.get(att.parentItemID) : att;
 	},
 
 	async scan(progressCallback, cancelToken) {
 		let items = await Zotero.Items.getAll(Zotero.Libraries.userLibraryID);
-		let parentItems = items.filter(
+		let regularItems = items.filter(
 			item => item.isRegularItem() && !item.parentItemID
+		);
+		// getAll() omits trashed items, but trashing a parent doesn't mark its
+		// children deleted, so check the item this attachment maps to.
+		let attachments = items.filter(
+			item => item.isFileAttachment() && !item.isEmbeddedImageAttachment()
+				&& !this.topLevelItem(item).deleted
 		);
 
 		let titleGroups = {};
-		let sizeGroups = {};
-		let total = parentItems.length;
-		let yieldCounter = 0;
-
-		for (let i = 0; i < parentItems.length; i++) {
-			if (cancelToken.cancelled) return [];
-
-			let item = parentItems[i];
-			progressCallback(i, total, item.getField('title'));
-
+		for (let item of regularItems) {
 			let norm = this.normalizeTitle(item.getField('title'));
 			if (norm) {
-				if (!titleGroups[norm]) titleGroups[norm] = [];
-				titleGroups[norm].push(item);
+				let group = titleGroups[norm] ||= [];
+				group.push(item);
 			}
+		}
 
-			let candidate = await this.firstPDF(item);
-			if (candidate) {
-				let group = sizeGroups[candidate.size] ||= [];
-				group.push(candidate);
+		let sizeGroups = {};
+		let total = attachments.length;
+		let yieldCounter = 0;
+
+		for (let i = 0; i < total; i++) {
+			if (cancelToken.cancelled) return [];
+
+			let att = attachments[i];
+			progressCallback(i, total, att.attachmentFilename);
+
+			let path = await att.getFilePathAsync();
+			if (path) {
+				let { size } = await IOUtils.stat(path);
+				let group = sizeGroups[size] ||= [];
+				group.push(att);
 			}
 
 			if (++yieldCounter % 50 === 0) {
@@ -252,13 +264,13 @@ FindDuplicates = {
 		for (let i = 0; i < candidates.length; i++) {
 			if (cancelToken.cancelled) return [];
 
-			let { item, att } = candidates[i];
-			progressCallback(i, candidates.length, 'Hashing ' + item.getField('title'));
+			let att = candidates[i];
+			progressCallback(i, candidates.length, 'Hashing ' + att.attachmentFilename);
 
 			let hash = await att.attachmentHash;
 			if (hash) {
-				if (!hashGroups[hash]) hashGroups[hash] = [];
-				hashGroups[hash].push(item);
+				let group = hashGroups[hash] ||= [];
+				group.push(this.topLevelItem(att));
 			}
 		}
 
@@ -267,12 +279,13 @@ FindDuplicates = {
 		let seen = new Set();
 		let groups = [];
 
-		for (let [, items] of Object.entries(hashGroups)) {
+		for (let [, matched] of Object.entries(hashGroups)) {
+			let items = [...new Map(matched.map(i => [i.id, i])).values()];
 			if (items.length < 2) continue;
 			let key = items.map(i => i.id).sort().join(',');
 			if (seen.has(key)) continue;
 			seen.add(key);
-			groups.push({ type: 'pdf', items });
+			groups.push({ type: 'file', items });
 		}
 
 		for (let [, items] of Object.entries(titleGroups)) {
