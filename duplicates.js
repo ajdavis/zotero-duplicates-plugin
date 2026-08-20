@@ -154,9 +154,20 @@ FindDuplicates = {
 				cb.type = 'checkbox';
 				cb.checked = true;
 				checkboxes.push(cb);
-				let typeText = group.type === 'file' ? ' [File match]' : ' [Title match]';
+				let typeText = {
+					file: ' [File match]',
+					title: ' [Title match]',
+					attachment: ' [Duplicate files in one item]'
+				}[group.type];
 				header.append(cb, typeText);
 				groupDiv.appendChild(header);
+
+				if (group.parent) {
+					groupDiv.appendChild(this._el(doc, 'div', {
+						className: 'group-item',
+						textContent: this.describe(group.parent)
+					}));
+				}
 
 				for (let item of group.items) {
 					let row = this._el(doc, 'div', {
@@ -196,7 +207,7 @@ FindDuplicates = {
 	describe(item) {
 		if (item.isAttachment()) {
 			let name = item.attachmentFilename || item.getDisplayTitle();
-			return `${name} \u2014 no parent item`;
+			return item.parentItemID ? name : `${name} \u2014 no parent item`;
 		}
 		let creators = item.getCreators();
 		let author = creators.length > 0 ? creators[0].lastName : 'Unknown';
@@ -270,7 +281,7 @@ FindDuplicates = {
 			let hash = await att.attachmentHash;
 			if (hash) {
 				let group = hashGroups[hash] ||= [];
-				group.push(this.topLevelItem(att));
+				group.push({ att, top: this.topLevelItem(att) });
 			}
 		}
 
@@ -280,7 +291,19 @@ FindDuplicates = {
 		let groups = [];
 
 		for (let [, matched] of Object.entries(hashGroups)) {
-			let items = [...new Map(matched.map(i => [i.id, i])).values()];
+			let byTop = new Map();
+			for (let { att, top } of matched) {
+				let entry = byTop.get(top.id) || { top, atts: [] };
+				entry.atts.push(att);
+				byTop.set(top.id, entry);
+			}
+
+			// Several copies of one file under a single item.
+			for (let { top, atts } of byTop.values()) {
+				if (atts.length > 1) groups.push({ type: 'attachment', parent: top, items: atts });
+			}
+
+			let items = [...byTop.values()].map(entry => entry.top);
 			if (items.length < 2) continue;
 			let key = items.map(i => i.id).sort().join(',');
 			if (seen.has(key)) continue;
