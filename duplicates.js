@@ -73,6 +73,7 @@ FindDuplicates = {
 			.group-item { margin-left: 24px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 			.buttons { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; }
 			progress { width: 100%; margin: 8px 0; }
+			.hint { opacity: 0.7; margin-top: 4px; }
 		`;
 		doc.head.appendChild(style);
 
@@ -108,10 +109,16 @@ FindDuplicates = {
 		// Phase 4: Done
 		let donePhase = this._el(doc, 'div', { className: 'phase', id: 'done-phase' });
 		let doneLabel = this._el(doc, 'div');
+		let doneHint = this._el(doc, 'div', {
+			className: 'hint',
+			textContent: 'Every item in the checked groups was tagged, keepers included. '
+				+ 'Close this and you\u2019ll be in My Library filtered by the "duplicate" tag: '
+				+ 'delete the copies you don\u2019t want, then remove the tag from the ones you keep.'
+		});
 		let doneButtons = this._el(doc, 'div', { className: 'buttons' });
 		let doneCloseBtn = this._el(doc, 'button', { textContent: 'Close' });
 		doneButtons.appendChild(doneCloseBtn);
-		donePhase.append(doneLabel, doneButtons);
+		donePhase.append(doneLabel, doneHint, doneButtons);
 
 		doc.body.append(scanPhase, resultsPhase, noResultsPhase, donePhase);
 
