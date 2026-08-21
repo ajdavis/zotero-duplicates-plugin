@@ -72,6 +72,7 @@ FindDuplicates = {
 			.group-header { font-weight: bold; }
 			.group-item { margin-left: 24px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 			.buttons { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; }
+			.spacer { flex: 1; }
 			progress { width: 100%; margin: 8px 0; }
 			.hint { opacity: 0.7; margin-top: 4px; }
 		`;
@@ -93,9 +94,12 @@ FindDuplicates = {
 		let resultsSummary = this._el(doc, 'div');
 		let resultsList = this._el(doc, 'div', { className: 'groups' });
 		let resultsButtons = this._el(doc, 'div', { className: 'buttons' });
+		let selectAllBtn = this._el(doc, 'button', { textContent: 'Select All' });
+		let selectNoneBtn = this._el(doc, 'button', { textContent: 'Select None' });
+		let spacer = this._el(doc, 'div', { className: 'spacer' });
 		let cancelResultsBtn = this._el(doc, 'button', { textContent: 'Cancel' });
 		let tagBtn = this._el(doc, 'button', { textContent: 'Tag Duplicates' });
-		resultsButtons.append(cancelResultsBtn, tagBtn);
+		resultsButtons.append(selectAllBtn, selectNoneBtn, spacer, cancelResultsBtn, tagBtn);
 		resultsPhase.append(resultsSummary, resultsList, resultsButtons);
 
 		// Phase 3: No results
@@ -154,6 +158,10 @@ FindDuplicates = {
 			resultsSummary.textContent = `Found ${groups.length} group(s) with ${totalItems} total items.`;
 
 			let checkboxes = [];
+			let setAll = checked => checkboxes.forEach(cb => { cb.checked = checked; });
+			selectAllBtn.onclick = () => setAll(true);
+			selectNoneBtn.onclick = () => setAll(false);
+
 			for (let group of groups) {
 				let groupDiv = this._el(doc, 'div', { className: 'group' });
 				let header = this._el(doc, 'label', { className: 'group-header' });
