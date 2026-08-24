@@ -25,7 +25,7 @@ function onMainWindowUnload({ window }) {
 
 function shutdown() {
 	log("Shutting down");
-	FindDuplicates.removeFromAllWindows();
+	FindDuplicates.shutdown();
 	FindDuplicates = undefined;
 }
 

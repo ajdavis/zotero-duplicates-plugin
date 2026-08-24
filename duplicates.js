@@ -3,11 +3,40 @@ FindDuplicates = {
 	version: null,
 	rootURI: null,
 	addedElementIDs: [],
+	TAG: 'duplicate',
+	groupKeys: new Map(),
 
 	init({ id, version, rootURI }) {
 		this.id = id;
 		this.version = version;
 		this.rootURI = rootURI;
+		this.columnKey = Zotero.ItemTreeManager.registerColumn({
+			dataKey: 'duplicateGroup',
+			label: 'Duplicate Group',
+			pluginID: id,
+			dataProvider: item => this.groupKey(item)
+		});
+	},
+
+	shutdown() {
+		Zotero.ItemTreeManager.unregisterColumn(this.columnKey);
+		this.removeFromAllWindows();
+	},
+
+	// Copies of one file share a group key, so sorting by the column lists them
+	// together however differently they're named.
+	sortByGroup(zp) {
+		let columns = zp.itemsView.tree._columns;
+		let index = columns._columns.findIndex(c => c.dataKey == this.columnKey);
+		if (index == -1) return;
+		if (columns._columns[index].hidden) columns.toggleHidden(index);
+		zp.itemsView._handleColumnSort(index, 1);
+	},
+
+	// Filled in by the last scan, so sorting the column groups copies of one
+	// file together. Deliberately not persisted; a new scan is cheap.
+	groupKey(item) {
+		return this.groupKeys.get(item.id) || '';
 	},
 
 	addToAllWindows() {
@@ -206,8 +235,9 @@ FindDuplicates = {
 					// The tag filter applies within the selected collection.
 					await zp.collectionsView.selectLibrary(Zotero.Libraries.userLibraryID);
 					zp.tagSelector.selectedTags.clear();
-					zp.tagSelector.selectedTags.add('duplicate');
+					zp.tagSelector.selectedTags.add(this.TAG);
 					await zp.updateTagFilter();
+					this.sortByGroup(zp);
 				}
 			};
 		});
@@ -304,8 +334,10 @@ FindDuplicates = {
 
 		let seen = new Set();
 		let groups = [];
+		this.groupKeys.clear();
 
-		for (let [, matched] of Object.entries(hashGroups)) {
+		for (let [hash, matched] of Object.entries(hashGroups)) {
+			let key = hash.substring(0, 8);
 			let byTop = new Map();
 			for (let { att, top } of matched) {
 				let entry = byTop.get(top.id) || { top, atts: [] };
@@ -315,23 +347,31 @@ FindDuplicates = {
 
 			// Several copies of one file under a single item.
 			for (let { top, atts } of byTop.values()) {
-				if (atts.length > 1) groups.push({ type: 'attachment', parent: top, items: atts });
+				if (atts.length > 1) groups.push({ type: 'attachment', key, parent: top, items: atts });
 			}
 
 			let items = [...byTop.values()].map(entry => entry.top);
 			if (items.length < 2) continue;
-			let key = items.map(i => i.id).sort().join(',');
-			if (seen.has(key)) continue;
-			seen.add(key);
-			groups.push({ type: 'file', items });
+			let idKey = items.map(i => i.id).sort().join(',');
+			if (seen.has(idKey)) continue;
+			seen.add(idKey);
+			groups.push({ type: 'file', key, items });
 		}
 
-		for (let [, items] of Object.entries(titleGroups)) {
+		for (let [norm, items] of Object.entries(titleGroups)) {
 			if (items.length < 2) continue;
-			let key = items.map(i => i.id).sort().join(',');
-			if (seen.has(key)) continue;
-			seen.add(key);
-			groups.push({ type: 'title', items });
+			let idKey = items.map(i => i.id).sort().join(',');
+			if (seen.has(idKey)) continue;
+			seen.add(idKey);
+			groups.push({
+				type: 'title',
+				key: Zotero.Utilities.Internal.md5(norm).substring(0, 8),
+				items
+			});
+		}
+
+		for (let group of groups) {
+			for (let item of group.items) this.groupKeys.set(item.id, group.key);
 		}
 
 		return groups;
@@ -341,7 +381,7 @@ FindDuplicates = {
 		await Zotero.DB.executeTransaction(async () => {
 			for (let group of groups) {
 				for (let item of group.items) {
-					item.addTag('duplicate');
+					item.addTag(this.TAG);
 					await item.save();
 				}
 			}
